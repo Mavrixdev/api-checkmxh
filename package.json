@@ -1,0 +1,26 @@
+{
+  "name": "mavrixcheck",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "input": "^1.0.1",
+    "mongoose": "^9.6.1",
+    "node-cache": "^5.1.2",
+    "node-fetch": "^2.7.0",
+    "p-queue": "^9.2.0",
+    "puppeteer": "^24.42.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "telegram": "^2.26.22",
+    "zca-js": "^2.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
