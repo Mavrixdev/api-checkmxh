@@ -45,7 +45,7 @@ const lookupSchema = new mongoose.Schema({
 });
 const Lookup = mongoose.model('Lookup', lookupSchema);
 
-const puppeteerQueue = new PQueue({ concurrency: 2 });
+const puppeteerQueue = new PQueue({ concurrency: 1 });
 function getQueueStatus() {
     return {
         size: puppeteerQueue.size,
@@ -83,6 +83,22 @@ const PROXY_LIST = [
 let proxyIndex = 0;
 let cookieAlerts = { zalo: false, instagram: false };
 
+// Flags tối ưu RAM cho gói Free của Render
+const LOW_MEMORY_ARGS = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--single-process',
+    '--no-zygote',
+    '--disable-gpu',
+    '--disable-canvas-aa',
+    '--disable-2d-canvas-clip-aa',
+    '--disable-gl-drawing-for-tests',
+    '--disable-extensions',
+    '--no-first-run',
+    '--js-flags="--max-old-space-size=256"'
+];
+
 function getNextProxy() {
     const proxy = PROXY_LIST[proxyIndex];
     proxyIndex = (proxyIndex + 1) % PROXY_LIST.length;
@@ -116,16 +132,23 @@ async function checkFacebook(phone) {
         const proxy = USE_PROXY ? getNextProxy() : null;
         const browser = await puppeteer.launch({
             headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process', '--no-zygote', ...(proxy ? [`--proxy-server=${proxy}`] : [])]
+            args: [...LOW_MEMORY_ARGS, ...(proxy ? [`--proxy-server=${proxy}`] : [])]
         });
         try {
             const page = await browser.newPage();
+            // Chặn ảnh/css để tiết kiệm RAM và tốc độ
+            await page.setRequestInterception(true);
+            page.on('request', (req) => {
+                if (['image', 'stylesheet', 'font'].includes(req.resourceType())) req.abort();
+                else req.continue();
+            });
+
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
-            await page.goto('https://www.facebook.com/login/identify/?ctx=recover', { waitUntil: 'networkidle2', timeout: 30000 });
+            await page.goto('https://www.facebook.com/login/identify/?ctx=recover', { waitUntil: 'networkidle2', timeout: 20000 });
             await page.waitForSelector('input[type="text"]');
             await page.type('input[type="text"]', phone);
             await page.keyboard.press('Enter');
-            await page.waitForSelector('div[role="button"] image', { timeout: 15000 }).catch(() => { });
+            await page.waitForSelector('div[role="button"] image', { timeout: 10000 }).catch(() => { });
             const resultElements = await page.$$('div[role="button"]');
             const accounts = [];
             for (let el of resultElements) {
@@ -143,7 +166,7 @@ async function checkFacebook(phone) {
             attempts++;
         }
     }
-    return { success: false, found: false, error: "Lỗi Facebook sau nhiều lần thử." };
+    return { success: false, found: false, error: "Lỗi Facebook (RAM/Timeout)" };
 }
 
 async function checkInstagram(phone) {
@@ -153,30 +176,36 @@ async function checkInstagram(phone) {
         const proxy = USE_PROXY ? getNextProxy() : null;
         const browser = await puppeteer.launch({
             headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process', '--no-zygote', ...(proxy ? [`--proxy-server=${proxy}`] : [])],
+            args: [...LOW_MEMORY_ARGS, ...(proxy ? [`--proxy-server=${proxy}`] : [])],
             userDataDir: './ig_profile'
         });
         try {
             const page = await browser.newPage();
+            await page.setRequestInterception(true);
+            page.on('request', (req) => {
+                if (['image', 'stylesheet', 'font'].includes(req.resourceType())) req.abort();
+                else req.continue();
+            });
+
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
-            await page.goto('https://www.instagram.com/accounts/password/reset/', { waitUntil: 'networkidle2', timeout: 30000 });
+            await page.goto('https://www.instagram.com/accounts/password/reset/', { waitUntil: 'networkidle2', timeout: 20000 });
             await page.waitForSelector('input');
             await page.type('input', phone);
             await page.keyboard.press('Enter');
-            await new Promise(r => setTimeout(r, 5000));
+            await new Promise(r => setTimeout(r, 4000));
             const content = await page.content();
             const exists = content.includes("We sent a link") || content.includes("Sent") || content.includes("Chúng tôi đã gửi");
             const notFound = content.includes("No users found") || content.includes("Không tìm thấy người dùng");
             await browser.close();
             if (exists) return { success: true, found: true, message: "Có tài khoản Instagram gắn với số này." };
             if (notFound) return { success: true, found: false, message: "Không tìm thấy tài khoản Instagram." };
-            return { success: false, error: "Không xác định được (Có thể bị chặn/Captcha)" };
+            return { success: false, error: "Bị chặn/Captcha" };
         } catch (error) {
             await browser.close();
             attempts++;
         }
     }
-    return { error: "Lỗi Instagram sau nhiều lần thử." };
+    return { error: "Lỗi Instagram (RAM/Timeout)" };
 }
 
 function checkCarrier(phone) {
